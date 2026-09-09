@@ -2292,6 +2292,48 @@ exec(compile('{unsafe_code}', 'no filename', 'exec'))
         with pytest.raises(InterpreterError, match="Forbidden call to dunder function"):
             evaluate_python_code(code, BASE_PYTHON_TOOLS, state={"forbidden_dunder": __disallowed_dunder__})
 
+    def test_decorator_forbidden_builtin_type(self):
+        import builtins
+
+        code = dedent("""
+            @unauthorized_type
+            def foo():
+                pass
+        """)
+        with pytest.raises(InterpreterError, match="Invoking a builtin function that has not been explicitly added"):
+            evaluate_python_code(code, BASE_PYTHON_TOOLS, state={"unauthorized_type": builtins.bytearray})
+
+    def test_dunder_guard_with_callsite_name_when_func_has_no_name(self):
+        class CallableNoName:
+            def __call__(self, *args):
+                return "should_not_reach"
+
+        code = dedent("""
+            class Target:
+                def __init__(self):
+                    self.__subclasses__ = evil_callable
+
+            t = Target()
+            t.__subclasses__()
+        """)
+        with pytest.raises(InterpreterError, match="Forbidden call to dunder function: __subclasses__"):
+            evaluate_python_code(code, BASE_PYTHON_TOOLS, state={"evil_callable": CallableNoName()})
+
+    def test_class_method_does_not_pollute_outer_custom_tools(self):
+        code = dedent("""
+            class Service:
+                @property
+                def prop_method(self):
+                    return 1
+
+                def regular_method(self):
+                    return 2
+        """)
+        custom_tools = {}
+        evaluate_python_code(code, BASE_PYTHON_TOOLS, custom_tools=custom_tools)
+        assert "prop_method" not in custom_tools
+        assert "regular_method" not in custom_tools
+
 
 class TestEvaluateBoolop:
     @pytest.mark.parametrize("a", [1, 0])

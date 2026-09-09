@@ -536,19 +536,26 @@ def apply_call(
     static_tools: dict[str, Callable],
     func_name: str | None = None,
 ) -> Any:
-    if (inspect.getmodule(func) == builtins) and inspect.isbuiltin(func) and (func not in static_tools.values()):
+    is_builtin = inspect.isbuiltin(func) or isinstance(func, type)
+    if (
+        (inspect.getmodule(func) == builtins)
+        and is_builtin
+        and (func not in static_tools.values())
+        and (func not in ERRORS.values())
+    ):
         name = func_name or getattr(func, "__name__", str(func))
         raise InterpreterError(
             f"Invoking a builtin function that has not been explicitly added as a tool is not allowed ({name})."
         )
+    name = getattr(func, "__name__", None) or func_name
     if (
-        hasattr(func, "__name__")
-        and func.__name__.startswith("__")
-        and func.__name__.endswith("__")
-        and (func.__name__ not in static_tools)
-        and (func.__name__ not in ALLOWED_DUNDER_METHODS)
+        name
+        and name.startswith("__")
+        and name.endswith("__")
+        and (name not in static_tools)
+        and (name not in ALLOWED_DUNDER_METHODS)
     ):
-        raise InterpreterError(f"Forbidden call to dunder function: {func.__name__}")
+        raise InterpreterError(f"Forbidden call to dunder function: {name}")
     return func(*args, **kwargs)
 
 
@@ -559,7 +566,7 @@ def evaluate_function_def(
     custom_tools: dict[str, Callable],
     authorized_imports: list[str],
 ) -> Any:
-    # ponytail: evaluate decorator expressions top-to-bottom, apply bottom-to-top per PEP 318
+    # Evaluate decorator expressions top-to-bottom, apply bottom-to-top per PEP 318
     func = create_function(func_def, state, static_tools, custom_tools, authorized_imports)
     decorators = [
         evaluate_ast(decorator_node, state, static_tools, custom_tools, authorized_imports)
@@ -602,9 +609,10 @@ def evaluate_class_def(
         for decorator_node in class_def.decorator_list
     ]
 
+    body_custom_tools = custom_tools.copy()
     for stmt in class_def.body:
         if isinstance(stmt, ast.FunctionDef):
-            class_dict[stmt.name] = evaluate_ast(stmt, state, static_tools, custom_tools, authorized_imports)
+            class_dict[stmt.name] = evaluate_ast(stmt, state, static_tools, body_custom_tools, authorized_imports)
         elif isinstance(stmt, ast.AnnAssign):
             if stmt.value:
                 value = evaluate_ast(stmt.value, state, static_tools, custom_tools, authorized_imports)
