@@ -124,6 +124,9 @@ BASE_PYTHON_TOOLS = {
     "issubclass": issubclass,
     "type": type,
     "complex": complex,
+    "property": property,
+    "staticmethod": staticmethod,
+    "classmethod": classmethod,
 }
 
 # Non-exhaustive list of dangerous modules that should not be imported
@@ -532,8 +535,16 @@ def evaluate_function_def(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     authorized_imports: list[str],
-) -> Callable:
-    custom_tools[func_def.name] = create_function(func_def, state, static_tools, custom_tools, authorized_imports)
+) -> Any:
+    # ponytail: evaluate decorator expressions top-to-bottom, apply bottom-to-top per PEP 318
+    func = create_function(func_def, state, static_tools, custom_tools, authorized_imports)
+    decorators = [
+        evaluate_ast(decorator_node, state, static_tools, custom_tools, authorized_imports)
+        for decorator_node in func_def.decorator_list
+    ]
+    for decorator in reversed(decorators):
+        func = decorator(func)
+    custom_tools[func_def.name] = func
     return custom_tools[func_def.name]
 
 
@@ -561,6 +572,12 @@ def evaluate_class_def(
         class_dict = metaclass.__prepare__(class_name, bases)
     else:
         class_dict = {}
+
+    # Evaluate class decorators before class body per PEP 3129
+    decorators = [
+        evaluate_ast(decorator_node, state, static_tools, custom_tools, authorized_imports)
+        for decorator_node in class_def.decorator_list
+    ]
 
     for stmt in class_def.body:
         if isinstance(stmt, ast.FunctionDef):
@@ -614,6 +631,8 @@ def evaluate_class_def(
             raise InterpreterError(f"Unsupported statement in class body: {stmt.__class__.__name__}")
 
     new_class = metaclass(class_name, tuple(bases), class_dict)
+    for decorator in reversed(decorators):
+        new_class = decorator(new_class)
     state[class_name] = new_class
     return new_class
 
