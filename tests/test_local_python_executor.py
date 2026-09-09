@@ -2246,6 +2246,52 @@ exec(compile('{unsafe_code}', 'no filename', 'exec'))
         assert state["res_x"] == 3
         assert state["res_y"] == 4
 
+    def test_function_decorator_forbidden_builtin(self):
+        import builtins
+
+        code = dedent("""
+            @unauthorized_builtin
+            def foo():
+                pass
+        """)
+        with pytest.raises(InterpreterError, match="Invoking a builtin function that has not been explicitly added"):
+            evaluate_python_code(code, BASE_PYTHON_TOOLS, state={"unauthorized_builtin": builtins.dir})
+
+    def test_class_decorator_forbidden_builtin(self):
+        import builtins
+
+        code = dedent("""
+            @unauthorized_builtin
+            class Foo:
+                pass
+        """)
+        with pytest.raises(InterpreterError, match="Invoking a builtin function that has not been explicitly added"):
+            evaluate_python_code(code, BASE_PYTHON_TOOLS, state={"unauthorized_builtin": builtins.dir})
+
+    def test_function_decorator_forbidden_dunder(self):
+        def __disallowed_dunder__(func):
+            return func
+
+        code = dedent("""
+            @forbidden_dunder
+            def foo():
+                pass
+        """)
+        with pytest.raises(InterpreterError, match="Forbidden call to dunder function"):
+            evaluate_python_code(code, BASE_PYTHON_TOOLS, state={"forbidden_dunder": __disallowed_dunder__})
+
+    def test_class_decorator_forbidden_dunder(self):
+        def __disallowed_dunder__(cls):
+            return cls
+
+        code = dedent("""
+            @forbidden_dunder
+            class Foo:
+                pass
+        """)
+        with pytest.raises(InterpreterError, match="Forbidden call to dunder function"):
+            evaluate_python_code(code, BASE_PYTHON_TOOLS, state={"forbidden_dunder": __disallowed_dunder__})
+
 
 class TestEvaluateBoolop:
     @pytest.mark.parametrize("a", [1, 0])
